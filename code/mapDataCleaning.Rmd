@@ -1,0 +1,124 @@
+---
+title: "R Notebook"
+---
+
+```{r setup}
+library(tidyverse)
+
+# national park service boundary shape file available from:
+# https://irma.nps.gov/DataStore/DownloadFile/673366
+dat <- sf::read_sf("../data/nps_boundary/nps_boundary.shp")
+```
+
+```{r}
+library(leaflet)
+
+leaflet() %>%
+  setView(-98.483330, 38.712046, zoom = 4) %>%
+  addTiles() %>%
+  # we project to a different coordinate system than regular lat/long
+  addPolygons(data = sf::st_transform(dat,sp::CRS("+proj=longlat +datum=WGS84 +no_defs")))
+```
+
+```{r}
+# we'll only be able to use 12 colors from RColoRBrewer, so we're only going to
+# select the most often occurring type of park
+dat %>%
+  as.data.frame() %>%
+  select(-geometry) %>%
+  group_by(UNIT_TYPE) %>%
+  tally(sort = TRUE)
+```
+
+
+```{r}
+# a website contains some twitter handles of national parks
+library(rvest)
+parkTwitter <- rvest::read_html("https://jasoncochran.com/blog/all-the-national-park-service-twitter-accounts-in-one-place/")
+
+parkTwitter_df <- parkTwitter %>%
+  rvest::html_elements("p") %>%
+  .[14:20] %>%
+  map_dfr(function(sectionString){
+    
+    sectionString %>%
+      as.character() %>%
+      str_remove(string = .,pattern = '<p style=\"text-align: left;\"') %>%
+      str_split(string = .,pattern = "<br>") %>%
+      .[[1]] %>%
+      map_dfr(function(parkString){
+        
+        parkSplit <- str_split(parkString,": ")[[1]]
+        
+        data.frame(parkName = str_split(parkSplit[1],", ")[[1]][1],
+                   state = str_split(parkSplit[1],", ")[[1]][2],
+                   accountHandle = parkSplit[2])
+        
+      })
+    
+  })
+
+parkTwitter_df <- parkTwitter_df %>%
+  mutate(parkName = parkName %>%
+           str_remove("<") %>%
+           str_remove("/a") %>%
+           str_remove(">") %>%
+           str_remove("/") %>%
+           str_remove("\n"),
+         accountLink = str_extract(accountHandle,'\"http.*\"') %>%
+           str_remove(">.*"))
+
+save(parkTwitter_df,file = "../data/parkTwitter_df.RData")
+```
+
+
+```{r}
+# rtweet package allows pulling data from twitter
+npsFollowed <- rtweet::get_friends("NatlParkService")
+npsFollowed_data <- rtweet::lookup_users(npsFollowed$user_id)
+
+npsFollowed_data <- npsFollowed_data %>%
+  filter(str_detect(screen_name,"NPS|nps|NHP|nhp|NP|np|NS|ns"))
+
+save(npsFollowed_data,file = "../data/npsFollowed_data.RData")
+```
+
+```{r}
+load("../data/npsFollowed_data.RData")
+
+load("../data/parkTwitter_df.RData")
+
+# npsFollowed contains twitter handles that the main National Parks service
+# twitter account follows, which is presumably a good place to look for other
+# national parks. the parkTwitter_df data set contains data scraped from a
+# website. There is a non-empty set difference between these two data sets, so
+# we'll join both together to get as many twitter handles as possible.
+
+parkNameTwitterLinks <- dat %>%
+  as.data.frame() %>%
+  select(-geometry) %>%
+  select(UNIT_NAME,UNIT_TYPE) %>%
+  mutate(unit_name_lower = tolower(UNIT_NAME)) %>%
+  left_join(npsFollowed_data %>%
+              select(screen_name,name) %>%
+              mutate(name_lower = tolower(name)) %>%
+              select(-name),
+            by = c("unit_name_lower" = "name_lower")) %>%
+  left_join(parkTwitter_df %>%
+              mutate(accountAt = accountLink %>%
+                       str_remove_all('\"') %>%
+                       str_remove("https://www.twitter.com/")%>%
+                       str_remove("https://twitter.com/") %>%
+                       str_remove("http://www.twitter.com/") %>%
+                       str_remove("http://twitter.com/"),
+                     parkName_lower = tolower(parkName)) %>%
+              select(accountAt,parkName_lower),
+                     by = c("unit_name_lower" = "parkName_lower")) %>%
+  filter(!is.na(screen_name) | !is.na(accountAt)) %>%
+  mutate(accountLink = ifelse(!is.na(screen_name),paste0("https://www.twitter.com/",screen_name),
+                              paste0("https://www.twitter.com/",accountAt))) %>%
+  select(UNIT_NAME,accountLink)
+
+save(parkNameTwitterLinks,file = "../data/parkNameTwitterLinks.RData")
+```
+
