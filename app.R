@@ -11,17 +11,22 @@ library(shiny)
 library(tidyverse)
 library(leaflet)
 
-npsBoundaries <- sf::read_sf("data/nps_boundary/nps_boundary.shp") %>%
-  filter(UNIT_TYPE %in% c("National Monument","National Historic Site","National Historical Park","National Park",
-                          "National Memorial","National Preserve","National Recreation Area","National Battlefield",
-                          "National Seashore","National Battlefield Park","National River","Other Designation")) %>%
-  sf::st_transform(sp::CRS("+proj=longlat +datum=WGS84 +no_defs")) %>%
-  arrange(UNIT_NAME)
+# no longer read in shp file. we have a simplified version of the geometry that
+# takes up considerably less memory
 
+# npsBoundaries <- sf::read_sf("data/nps_boundary/nps_boundary.shp") %>%
+#   filter(UNIT_TYPE %in% c("National Monument","National Historic Site","National Historical Park","National Park",
+#                           "National Memorial","National Preserve","National Recreation Area","National Battlefield",
+#                           "National Seashore","National Battlefield Park","National River","Other Designation")) %>%
+#   sf::st_transform(sp::CRS("+proj=longlat +datum=WGS84 +no_defs")) %>%
+#   arrange(UNIT_NAME)
+
+load("data/npsBoundaries_simplified.RData")
 load("data/parkNameTwitterLinks.RData")
 
 # leaflet map will have a border if the park has a twitter account
-npsBoundaries <- npsBoundaries %>%
+npsBoundaries_simplified <- npsBoundaries_simplified %>%
+  sf::st_as_sf() %>%
   left_join(parkNameTwitterLinks,by = c("UNIT_NAME")) %>%
   mutate(hasTwitter = ifelse(is.na(accountLink),FALSE,TRUE))
 
@@ -36,7 +41,7 @@ ui <-
     sidebarPanel(width = 2,
                  selectInput(inputId = "selectedParks",
                              label = "Select Parks",
-                             choices = unique(npsBoundaries$UNIT_NAME),
+                             choices = unique(npsBoundaries_simplified$UNIT_NAME),
                              selected = NULL,
                              multiple = TRUE)
     ),
@@ -60,15 +65,15 @@ server <- function(session,input, output) {
     leaflet() %>%
       setView(-98.483330, 38.712046, zoom = 4) %>%
       addTiles() %>%
-      addPolygons(data = npsBoundaries,
+      addPolygons(data = npsBoundaries_simplified,
                   weight = 2,
                   color = "black",
                   fillOpacity = .8,
-                  stroke = ~npsBoundaries$hasTwitter,
-                  fillColor = ~pal(npsBoundaries$UNIT_TYPE),
-                  label = npsBoundaries$UNIT_NAME,
-                  layerId = ~npsBoundaries$UNIT_NAME) %>%
-      addLegend(pal = pal,values = unique(npsBoundaries$UNIT_TYPE),position = "bottomright",title = NULL,opacity = .8)
+                  stroke = ~npsBoundaries_simplified$hasTwitter,
+                  fillColor = ~pal(npsBoundaries_simplified$UNIT_TYPE),
+                  label = npsBoundaries_simplified$UNIT_NAME,
+                  layerId = ~npsBoundaries_simplified$UNIT_NAME) %>%
+      addLegend(pal = pal,values = unique(npsBoundaries_simplified$UNIT_TYPE),position = "bottomright",title = NULL,opacity = .8)
 
   })
 

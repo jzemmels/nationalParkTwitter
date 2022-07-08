@@ -21,6 +21,21 @@ leaflet() %>%
 ```
 
 ```{r}
+# simplify the geometry to reduce memory requirements
+npsBoundaries_simplified <- sf::read_sf("../data/nps_boundary/nps_boundary.shp") %>%
+  filter(UNIT_TYPE %in% c("National Monument","National Historic Site","National Historical Park","National Park",
+                          "National Memorial","National Preserve","National Recreation Area","National Battlefield",
+                          "National Seashore","National Battlefield Park","National River","Other Designation")) %>%
+  arrange(UNIT_NAME) %>%
+  sf::st_transform(crs = sf::st_crs("ESRI:54032")) %>%
+  sf::st_simplify(dTolerance = 1000) %>%
+  sf::st_transform(sp::CRS("+proj=longlat +datum=WGS84 +no_defs"))
+
+save(npsBoundaries_simplified,file = "../data/npsBoundaries_simplified.RData")
+```
+
+
+```{r}
 # we'll only be able to use 12 colors from RColoRBrewer, so we're only going to
 # select the most often occurring type of park
 dat %>%
